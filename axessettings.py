@@ -2,7 +2,7 @@ from matplotlib.axes import Axes
 import numpy as np
 
 class AxesSetting():
-    def __init__(self, title="Title", xlabel=None, ylabel=None, xlim=None, ylim=None, xscale="linear", yscale="linear", legend: bool = True, aspect = 'auto', grid=None):
+    def __init__(self, title=None, xlabel=None, ylabel=None, xlim=None, ylim=None, xscale="linear", yscale="linear", legend: bool = True, aspect = 'auto', grid=None):
         self.title = title
         self.xlabel = xlabel
         self.ylabel = ylabel
@@ -63,3 +63,19 @@ class AxesSetting():
 
 def linear_sim(p1: tuple, p2: tuple, y: float) -> float:
     return (-p1[0] * (y - p2[1]) + p2[0] * (y - p1[1])) / (p2[1] - p1[1])
+
+def linear_approx(x, y, rng, start = 0.5, fmt=None):
+    assert len(x) == len(y)
+    assert len(rng) == 2
+    coords = [(x[i], y[i]) for i in range(len(x))]
+    coords.sort(key=lambda coord: coord[0])
+    filtered = [coord for coord in coords if coord[0] >= rng[0] and coord[0] <= rng[1]]
+    if len(filtered) < 2:
+        raise ValueError(f"More than 2 points must be in the range [{rng[0]}, {rng[1]}], but found {len(filtered)}")
+    slope = (filtered[-1][1] - filtered[0][1])/(filtered[-1][0] - filtered[0][0])
+    startx = start * filtered[-1][0] + (1-start) * filtered[0][0]
+    starty = start * filtered[-1][1] + (1-start) * filtered[0][1]
+    if fmt:
+        return fmt.format(slope=slope, slice=-slope*startx+starty)
+    else:
+        return lambda x: slope * (x-startx) + starty
