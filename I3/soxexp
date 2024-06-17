@@ -1,0 +1,4 @@
+#!/bin/bash
+
+sox -t s16 -c 1 -r 44100 tmp01.tmp -t s16 -c 1 -r 44100 -
+# sox -d -t s16 -r 44100 -c 1 - | sox -m -t s16 -c 1 -r 44100 -v 3 - -t s16 -c 1 -r 44100 -v 0.1 out.raw outpipe.wav
