@@ -1,0 +1,4 @@
+#!/bin/bash
+
+gcc -o multi_client multi_client_new.c -g
+gcc -o multi_server multi_server.c -g

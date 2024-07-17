@@ -61,6 +61,9 @@ class AxesSetting():
             raise Exception("Limit not defined.")
         axes.plot(x, func(x), **kwargs)
 
+    def plot_func_param(self, axes: Axes, xfunc, yfunc, params, **kwargs):
+        axes.plot(xfunc(params), yfunc(params), **kwargs)
+
 def linear_sim(p1: tuple, p2: tuple, y: float) -> float:
     return (-p1[0] * (y - p2[1]) + p2[0] * (y - p1[1])) / (p2[1] - p1[1])
 

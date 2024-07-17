@@ -1,0 +1,5 @@
+#!/bin/bash
+# echo "Recording audio and sending it to the server^C" | nc 192.168.231.201 50001
+rec -t raw -b 16 -c 1 -e s -r 44100 - | nc 192.168.231.201 50001
+# sox -t raw -b 16 -c 1 -e s -r 44100 out.raw -t raw - | nc 192.168.231.201 50001
+# cat text.txt | nc 192.168.231.201 50001

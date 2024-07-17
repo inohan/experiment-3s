@@ -1,0 +1,5 @@
+#!/bin/bash
+
+sox -m -t s16 -r 44100 -c 1 fifo1 -t s16 -r 44100 -c 1 fifo2 -d
+# play -t s16 -r 44100 -c 1 "|tail -f outpipe.raw"
+# tail -f outpipe.raw | play -t s16 -r 44100 -c 1 -

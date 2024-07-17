@@ -1,0 +1,7 @@
+#!/bin/bash
+gcc -o client_recv client_recv.c
+gcc -o client_recv_udp client_recv_udp.c
+gcc -o client_send_recv client_send_recv.c
+gcc -o client_send_recv_udp client_send_recv_udp.c
+gcc -o serv_send serv_send.c
+gcc -o serv_send2 serv_send2.c

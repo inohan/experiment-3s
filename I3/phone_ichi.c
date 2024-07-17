@@ -1,4 +1,6 @@
 #include <arpa/inet.h>
+#include <fftw3.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,9 +9,11 @@
 #include <unistd.h>
 
 #define BUFFER_SIZE 1024
+#define SAMPLE_RATE 44100
 
 void* send_audio(void* arg);
 void* recv_audio(void* arg);
+void formant_shift(double* input, double* output, int size, double shift_ratio);
 
 void start_server(int port);
 void start_client(const char* server_ip, int port);
@@ -120,16 +124,26 @@ void start_client(const char* server_ip, int port) {
 void* send_audio(void* arg) {
     int sock = *((int*)arg);
     // Use sox to apply a pitch shift of 1200 cents (12半音)
-    FILE* rec_pipe = popen("rec -t raw -b 16 -c 1 -e s -r 44100 - pitch 600", "r");
+    FILE* rec_pipe = popen("rec -t raw -b 16 -c 1 -e s -r 44100 - pitch 400", "r");
     if (!rec_pipe) {
         perror("popen rec");
         return NULL;
     }
 
     char buffer[BUFFER_SIZE];
+    double input[BUFFER_SIZE];
+    double output[BUFFER_SIZE];
     while (1) {
         size_t bytes_read = fread(buffer, 1, BUFFER_SIZE, rec_pipe);
         if (bytes_read > 0) {
+            // フォルマントシフト処理
+            for (size_t i = 0; i < bytes_read / sizeof(int16_t); ++i) {
+                input[i] = ((int16_t*)buffer)[i];
+            }
+            formant_shift(input, output, bytes_read / sizeof(int16_t), 1.4);  // 2.0倍のシフト
+            for (size_t i = 0; i < bytes_read / sizeof(int16_t); ++i) {
+                ((int16_t*)buffer)[i] = (int16_t)output[i];
+            }
             send(sock, buffer, bytes_read, 0);
         } else {
             break;
@@ -160,4 +174,42 @@ void* recv_audio(void* arg) {
 
     pclose(play_pipe);
     return NULL;
+}
+
+// フォルマントシフト関数
+void formant_shift(double* input, double* output, int size, double shift_ratio) {
+    fftw_complex *in, *out;
+    fftw_plan p;
+
+    in = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * size);
+    out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * size);
+
+    for (int i = 0; i < size; i++) {
+        in[i][0] = input[i];
+        in[i][1] = 0.0;
+    }
+
+    p = fftw_plan_dft_1d(size, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
+    fftw_execute(p);
+
+    // 周波数ドメインでのシフト
+    for (int i = 0; i < size; i++) {
+        double freq = (double)i / size * SAMPLE_RATE;
+        double new_freq = freq * shift_ratio;
+        int new_index = (int)(new_freq / SAMPLE_RATE * size);
+        if (new_index < size) {
+            output[new_index] = out[i][0];
+        }
+    }
+
+    p = fftw_plan_dft_1d(size, out, in, FFTW_BACKWARD, FFTW_ESTIMATE);
+    fftw_execute(p);
+
+    for (int i = 0; i < size; i++) {
+        output[i] = in[i][0] / size;
+    }
+
+    fftw_destroy_plan(p);
+    fftw_free(in);
+    fftw_free(out);
 }

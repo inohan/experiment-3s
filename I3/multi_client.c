@@ -11,17 +11,19 @@
 #include <string.h>
 #include <sys/select.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 #define BUF_READ 1024
 #define MAX_CLIENTS 30
 
 typedef struct clientsettings {
+    int id;
     char ip[17];
     unsigned int port;
     char usrname[21];
+    char filename[21];
     FILE *fp;
-    char *filename;
     unsigned int volume;
 } ClientSettings;
 
@@ -31,12 +33,13 @@ int s;
 FILE *fp_outaudio;
 
 // Function prototypes
-ClientSettings *client_setup(char *str);
-void client_free(ClientSettings *client);
+int client_setup(int sd, char *str);
+void client_free(int index);
 int recv_all(int socket, char *buffer, int length);
 int read_all(int fd, char *buffer, int length);
 void handle_sigint(int sig);
 void update_outcommand();
+ClientSettings *client_find(int sd);
 
 int main(int argc, char **argv) {
     signal(SIGINT, handle_sigint);
@@ -111,17 +114,16 @@ int main(int argc, char **argv) {
                     break;
                 case 1:  // new client
                     fprintf(stderr, "New client: %d\n", scan_client);
-                    clients[scan_client] = client_setup(buf);
+                    client_setup(scan_client, buf);
                     update_outcommand();
                     break;
                 case 2:  // client disconnected
-                    fprintf(stderr, "%s disconnected\n", clients[scan_client]->usrname);
-                    client_free(clients[scan_client]);
-                    clients[scan_client] = NULL;
+                    fprintf(stderr, "%s disconnected\n", client_find(scan_client)->usrname);
+                    client_free(scan_client);
                     update_outcommand();
                     break;
                 case 3:  // client data
-                    fwrite(buf, 1, scan_len, clients[scan_client]->fp);
+                    fwrite(buf, 1, scan_len, client_find(scan_client)->fp);
                     break;
                 default:
                     break;
@@ -144,8 +146,22 @@ int main(int argc, char **argv) {
     close(s);
 }
 
-ClientSettings *client_setup(char *str) {
+int client_setup(int sd, char *str) {
+    int i;
     ClientSettings *client = malloc(sizeof(ClientSettings));
+    // Find empty
+    for (i = 0; i < MAX_CLIENTS; i++) {
+        if (clients[i] == NULL) {
+            clients[i] = client;
+            break;
+        }
+    }
+    if (i == MAX_CLIENTS) {
+        perror("Too many clients");
+        return -1;
+    }
+    // Setup client
+    client->id = sd;
     char *token = strtok(str, ":");
     strcpy(client->ip, token);
     token = strtok(NULL, ":");
@@ -153,32 +169,50 @@ ClientSettings *client_setup(char *str) {
     token = strtok(NULL, ":");
     strcpy(client->usrname, token);
     client->volume = 100;
-    client->filename = malloc(sizeof(char) * 20);
+    // Create pipe file
+    // Get empty tmp file
     int fn_index = 0;
     while (1) {
-        snprintf(client->filename, 20, "tmp%02d.tmp", fn_index++);
+        snprintf(client->filename, 21, "tmp%02d.tmp", fn_index++);
         if (access(client->filename, F_OK) == -1) {
             break;
         }
     }
-    mkfifo(client->filename, 0666);
-    client->fp = fopen(client->filename, "wb");
-    return client;
+    if ((client->fp = fopen(client->filename, "w+")) == NULL) {
+        perror("fopen");
+    }
+    return i;
 }
 
-void client_free(ClientSettings *client) {
+void client_free(int index) {
+    ClientSettings *client = NULL;
+    int i;
+    for (i = 0; i < MAX_CLIENTS; i++) {
+        if (clients[i] != NULL && clients[i]->id == index) {
+            client = clients[i];
+            break;
+        }
+    }
+    if (client == NULL) {
+        return;
+    }
     if (fp_outaudio != NULL) {
         pclose(fp_outaudio);
         fp_outaudio = NULL;
     }
-    if (client->fp != NULL) {
-        fclose(client->fp);
-    }
-    if (client->filename != NULL) {
-        remove(client->filename);
-        free(client->filename);
-    }
+    fclose(client->fp);
+    remove(client->filename);
     free(client);
+    clients[i] = NULL;
+}
+
+ClientSettings *client_find(int sd) {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (clients[i] != NULL && clients[i]->id == sd) {
+            return clients[i];
+        }
+    }
+    return NULL;
 }
 
 int recv_all(int socket, char *buffer, int length) {
@@ -218,28 +252,31 @@ int read_all(int fd, char *buffer, int length) {
 }
 
 void handle_sigint(int sig) {
+    if (fp_outaudio != NULL) {
+        pclose(fp_outaudio);
+        fp_outaudio = NULL;
+    }
     for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (clients[i] != NULL) {
-            client_free(clients[i]);
-            clients[i] = NULL;
-        }
+        client_free(i);
     }
     close(s);
     exit(0);
 }
 
 void update_outcommand() {
+    fprintf(stderr, "update_outcommand\n");
     if (fp_outaudio != NULL) {
         pclose(fp_outaudio);
         fp_outaudio = NULL;
     }
-    char outcommand[300] = "sox --buffer 1024";
+    char outcommand[300] = "sox -m --buffer 1024 -q -r 44100 -n";
     int filecount = 0;
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i] != NULL) {
             filecount++;
         }
     }
+    fprintf(stderr, "filecount: %d\n", filecount);
     if (filecount >= 2) {
         strcat(outcommand, " -m");
     } else if (filecount == 0) {
@@ -248,10 +285,10 @@ void update_outcommand() {
     int last_index = strlen(outcommand);
     for (int i = 0; i < MAX_CLIENTS || last_index >= 300; i++) {
         if (clients[i] != NULL) {
-            last_index += snprintf(outcommand + last_index, 300 - last_index, " -t s16 -c 1 -r 44100 %s", clients[i]->filename);
+            last_index += snprintf(outcommand + last_index, 300 - last_index, " -t s16 -c 1 -r 44100 \"|tail -f %s\"", clients[i]->filename);
         }
     }
     last_index += snprintf(outcommand + last_index, 300 - last_index, " -d");
     fprintf(stderr, "command running: %s\n", outcommand);
-    fp_outaudio = popen(outcommand, "r");
+    fp_outaudio = popen(outcommand, "w");
 }

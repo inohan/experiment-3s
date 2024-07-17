@@ -1,0 +1,4 @@
+#!/bin/bash
+
+./compile
+gdb -ex "run 0.0.0.0 50000" ./multi_client

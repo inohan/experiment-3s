@@ -1,4 +1,7 @@
 LaTeX/
 
 __pycache__/
+I1/
 
+*.raw
+~\$*
